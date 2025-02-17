@@ -1,0 +1,162 @@
+{% load static %}
+
+<script src="{% static 'js/face_logics/face-api.min.js' %}"></script>
+
+<div class="container mt-4">
+    <h3>Automatic Attendance Capture</h3>
+    <video id="video" autoplay playsinline style="width: 100%; max-width: 640px; border: 1px solid #ccc;"></video>
+    <div id="status" class="mt-3 text-info">Initializing face detection...</div>
+</div>
+
+<script>
+    const video = document.getElementById('video');
+const statusDiv = document.getElementById('status');
+
+let canvas; // Global canvas to avoid recreation
+
+// Load face-api.js models
+Promise.all([
+    faceapi.nets.tinyFaceDetector.loadFromUri("{% static 'js/face_logics/models' %}"),
+    faceapi.nets.faceRecognitionNet.loadFromUri("{% static 'js/face_logics/models' %}"),
+    faceapi.nets.ssdMobilenetv1.loadFromUri("{% static 'js/face_logics/models' %}"),
+    faceapi.nets.faceLandmark68Net.loadFromUri("{% static 'js/face_logics/models' %}")
+])
+    .then(() => {
+        statusDiv.textContent = "Models loaded successfully. Starting camera...";
+        startVideo();
+    })
+    .catch(err => {
+        console.error("Error loading face-api.js models:", err);
+        statusDiv.textContent = "Error loading face detection models. Check static paths.";
+    });
+
+// Start the video stream
+function startVideo() {
+    navigator.mediaDevices
+        .getUserMedia({ video: true })
+        .then(stream => {
+            video.srcObject = stream;
+            statusDiv.textContent = "Camera initialized. Face detection active!";
+        })
+        .catch(err => {
+            console.error("Error accessing webcam:", err);
+            statusDiv.textContent = "Error accessing camera. Please allow permissions.";
+        });
+}
+
+// Add an event listener for video playback
+video.addEventListener('play', async () => {
+    if (!canvas) {
+        canvas = faceapi.createCanvasFromMedia(video);
+        canvas.style.position = "absolute";
+        canvas.style.left = `${video.offsetLeft}px`;
+        canvas.style.top = `${video.offsetTop}px`;
+        canvas.style.zIndex = "10";
+        document.body.append(canvas);
+    }
+
+    const displaySize = { width: video.videoWidth, height: video.videoHeight };
+    faceapi.matchDimensions(canvas, displaySize);
+
+    setInterval(async () => {
+        const detections = await faceapi
+            .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
+            .withFaceLandmarks()
+            .withFaceDescriptors();
+
+        const resizedDetections = faceapi.resizeResults(detections, displaySize);
+
+        // Clear canvas before redrawing
+        const canvasCtx = canvas.getContext('2d', { willReadFrequently: true });
+        canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw face detection boxes
+        faceapi.draw.drawDetections(canvas, resizedDetections);
+
+        // Process each detected face
+        for (const detection of resizedDetections) {
+            const box = detection.detection.box;
+
+            // Check if box dimensions are valid
+            if (box.width > 0 && box.height > 0) {
+                // Extract face image from the video
+                const faceCanvas = document.createElement("canvas");
+                faceCanvas.width = box.width;
+                faceCanvas.height = box.height;
+                const faceCanvasContext = faceCanvas.getContext("2d", { willReadFrequently: true });
+
+                // Draw the cropped face from the video onto a separate canvas
+                faceCanvasContext.drawImage(
+                    video,
+                    box.x,
+                    box.y,
+                    box.width,
+                    box.height,
+                    0,
+                    0,
+                    box.width,
+                    box.height
+                );
+
+                // Convert the cropped face to Base64
+                const faceImageData = faceCanvas.toDataURL("image/jpeg");
+
+                // Debugging: Log Base64 data
+                console.log("Base64 image data being sent to backend:", faceImageData);
+
+                // Send face image to backend for matching
+                try {
+                    const response = await fetch("{% url 'mark_attendance' %}", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "X-CSRFToken": "{{ csrf_token }}",
+                        },
+                        body: JSON.stringify({ image: faceImageData }),
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.name && data.enrollment_code) {
+                            // Update the canvas with matched student info
+                            canvasCtx.font = "16px Arial";
+                            canvasCtx.fillStyle = "blue";
+                            canvasCtx.fillText(
+                                `${data.name} (${data.enrollment_code})`,
+                                box.x,
+                                box.y - 10 // Position text above the box
+                            );
+                    
+                            statusDiv.textContent = `Matched: ${data.name} (${data.enrollment_code}) - Marked Present!`;
+                    
+                            // Dynamically update the student's status in the table
+                            const studentRow = document.getElementById(`student-${data.enrollment_code}`);
+                            if (studentRow) {
+                                const statusCell = studentRow.querySelector(".status-cell");
+                                if (statusCell) {
+                                    statusCell.textContent = "Present"; // Update status
+                                    statusCell.classList.add("text-success"); // Add a green highlight
+                                }
+                            }
+                        } else {
+                            statusDiv.textContent = "No match found.";
+                        }
+                    }
+                     else {
+                        const errorData = await response.json();
+                        console.error("Error in attendance API:", errorData);
+                        statusDiv.textContent = errorData.error || "Error processing face data.";
+                    }
+                } catch (err) {
+                    console.error("Error sending face to backend:", err);
+                    statusDiv.textContent = "Error communicating with server.";
+                }
+            } else {
+                console.error("Invalid bounding box dimensions:", box);
+            }
+        }
+    }, 1000); // Process every second
+});
+
+</script>
+

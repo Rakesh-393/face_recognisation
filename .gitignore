@@ -1,0 +1,18 @@
+# Ignore virtual environments
+env/
+
+# Ignore database files
+db.sqlite3
+
+# Ignore media folder
+media/
+
+
+# Ignore Django migrations and other unnecessary folders
+student_photos/
+school_app/migrations/
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+*.pyo
