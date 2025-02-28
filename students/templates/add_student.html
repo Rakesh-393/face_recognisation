@@ -10,6 +10,20 @@
     <h2>Add Student</h2>
     <form method="post" enctype="multipart/form-data" class="p-4 border rounded shadow-sm">
         {% csrf_token %}
+        
+        <!-- Display form errors if any -->
+        {% if form.errors %}
+            <div class="alert alert-danger">
+                <ul>
+                    {% for field in form %}
+                        {% for error in field.errors %}
+                            <li>{{ error }}</li>
+                        {% endfor %}
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+
         <div class="mb-3">
             <label for="id_name" class="form-label">Name</label>
             <input type="text" name="name" id="id_name" class="form-control" placeholder="Enter student name" required>
@@ -47,9 +61,11 @@
             <button type="button" class="btn btn-success mt-2" onclick="capturePhoto()">Capture Photo</button>
             <canvas id="canvas" style="display: none;"></canvas>
         </div>
+        <!-- Hidden field for photo data -->
+        <input type="hidden" name="photo_data" id="photo_data">
+        
         <button type="submit" class="btn btn-primary">Add Student</button>
     </form>
-    
     
     <hr>
     <a href="{% url 'attendance_capture' %}" class="btn btn-success mt-3">Go to Attendance Capture</a>
@@ -61,16 +77,20 @@
     const preview = document.getElementById('photo_preview');
     const cameraContainer = document.getElementById('camera-container');
     const fileInput = document.getElementById('id_photo');
+    const photoDataInput = document.getElementById('photo_data');
     let stream;
 
     // Function to preview uploaded image
     function previewImage(event) {
         const file = event.target.files[0];
         if (file) {
-            preview.src = URL.createObjectURL(file); // Set preview image to the selected file
-            preview.style.display = "block"; // Show the preview
-            stopCamera(); // Stop the camera if it is running
-            cameraContainer.style.display = "none"; // Hide the camera container
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const preview = document.getElementById('photo_preview');
+                preview.src = e.target.result; // Set preview image to the selected file
+                preview.style.display = "block"; // Show the preview
+            }
+            reader.readAsDataURL(file); // Read the file as a Data URL
         }
     }
 
@@ -93,35 +113,35 @@
             alert("Camera feed is not ready yet. Please try again.");
             return;
         }
-    
+
         const context = canvas.getContext('2d');
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    
+
         // Convert the canvas image to a Base64-encoded data URL
         const photoData = canvas.toDataURL('image/jpeg');
-    
-        // Set the captured photo as the preview
-        preview.src = photoData;
-        preview.style.display = "block";
-    
-        // Stop the camera
-        stopCamera();
-    
-        // Inject the captured photo data into the form as a hidden input
-        let hiddenInput = document.querySelector('input[name="photo_data"]');
-        if (!hiddenInput) {
-            hiddenInput = document.createElement('input');
-            hiddenInput.type = 'hidden';
-            hiddenInput.name = 'photo_data';
-            document.querySelector('form').appendChild(hiddenInput);
+
+        // Validate photoData
+        if (photoData && photoData.startsWith('data:image/jpeg;base64,')) {
+            // Set the captured photo as the preview
+            preview.src = photoData;
+            preview.style.display = "block";
+
+            // Stop the camera
+            stopCamera();
+
+            // Inject the captured photo data into the hidden input
+            photoDataInput.value = photoData;
+
+            // Log the photo data to make sure it's being added to the form
+            console.log("Captured Photo Data:", photoData); // Add this line for debugging
+            console.log("Hidden Photo Data Input Value:", photoDataInput.value); // Add this line for debugging
+        } else {
+            alert("Capture failed. Please try again.");
         }
-        hiddenInput.value = photoData;
     }
 
-    
-    
     // Stop the camera
     function stopCamera() {
         if (stream) {

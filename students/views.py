@@ -16,25 +16,33 @@ from django.core.files.base import ContentFile
 
 def add_student(request):
     if request.method == 'POST':
+        print(f"Request POST data: {request.POST}")  # Log POST data
+        print(f"Files data: {request.FILES}")  # Log FILES data
+        print(f"Form data: {request.POST.get('photo_data')}")  # Log photo data
+
         form = StudentForm(request.POST, request.FILES)
 
+        # Check if form is valid
         if form.is_valid():
             # Create the student object but don't save to the database yet
             student = form.save(commit=False)
-            print(1)
+
             # Handle the Base64 photo data if it exists
-            photo_data = request.POST.get('photo_data')  # Captured photo
+            photo_data = request.POST.get('photo_data')
             if photo_data:
                 # Decode the Base64 image
                 format, imgstr = photo_data.split(';base64,')
                 ext = format.split('/')[-1]  # Get the file extension (e.g., 'jpeg')
                 # Save the photo to the `photo` field
                 student.photo.save(f"{student.name}_photo.{ext}", ContentFile(base64.b64decode(imgstr)), save=False)
-            print(2)
+
             # Save the student object to the database
             student.save()
-            print(3)
+
+            print("Student saved successfully.")  # Log success
             return redirect('student_list')  # Redirect to the student list page
+        else:
+            print(f"Form errors: {form.errors}")  # Log form errors
     else:
         form = StudentForm()
 
